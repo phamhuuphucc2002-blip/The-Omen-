@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: arcanum-core
+    runtime: node
+    rootDir: arcanum-core
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    region: singapore
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
