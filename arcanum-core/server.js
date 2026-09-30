@@ -11,7 +11,24 @@ const { Pool } = pg;
 const app = express();
 const PORT = process.env.PORT || 10000;
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false });
+
+// Render can provide a placeholder DB host in the existing DATABASE_URL.
+// Normalize that host to the actual Arcanum Postgres internal hostname so the
+// application does not crash during startup.
+function normalizeDatabaseUrl(raw) {
+  if (!raw) return null;
+  const fallbackHost = process.env.ARCANUM_DB_HOST || 'dpg-dats7uad0e5s73dbbgdg-a';
+  try {
+    const url = new URL(raw);
+    if (url.hostname === 'base' || url.hostname === 'localhost') url.hostname = fallbackHost;
+    return url.toString();
+  } catch {
+    return raw.replace(/@base(?=[:/]|$)/, `@${fallbackHost}`);
+  }
+}
+
+const DATABASE_URL = normalizeDatabaseUrl(process.env.DATABASE_URL);
+const pool = new Pool({ connectionString: DATABASE_URL, ssl: DATABASE_URL ? { rejectUnauthorized: false } : false });
 const uploadDir = process.env.UPLOAD_DIR || './uploads';
 fs.mkdirSync(uploadDir, { recursive: true });
 const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } });
@@ -19,7 +36,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 const id = () => crypto.randomUUID();
 async function q(text, params=[]) { return pool.query(text, params); }
-async function init() { if (!process.env.DATABASE_URL) return; await q(fs.readFileSync('./schema.sql','utf8')); await bootstrapAdmin(); }
+async function init() { if (!DATABASE_URL) return; await q(fs.readFileSync('./schema.sql','utf8')); await bootstrapAdmin(); }
 async function bootstrapAdmin() {
   const username = process.env.ARCANUM_ADMIN_USERNAME;
   const password = process.env.ARCANUM_ADMIN_PASSWORD;
