@@ -6,7 +6,7 @@ services:
     buildCommand: npm install
     startCommand: npm start
     plan: free
-    region: singapore
+    region: oregon
     envVars:
       - key: DATABASE_URL
         sync: false
