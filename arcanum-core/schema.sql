@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS knowledge (
   content TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL DEFAULT '',
   visibility TEXT NOT NULL DEFAULT 'public',
+  status TEXT NOT NULL DEFAULT 'DRAFT',
   version INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS books (
   title TEXT NOT NULL,
   source_language TEXT NOT NULL DEFAULT 'unknown',
   target_language TEXT NOT NULL DEFAULT 'vi',
+  status TEXT NOT NULL DEFAULT 'PLANNED',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS book_translations (
   version INTEGER NOT NULL DEFAULT 1,
   original_text TEXT NOT NULL DEFAULT '',
   translated_text TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'DRAFT',
   author_id UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -82,9 +85,29 @@ CREATE TABLE IF NOT EXISTS audit_log (
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS sync_operations (
+  operation_id TEXT PRIMARY KEY,
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  device_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  deleted BOOLEAN NOT NULL DEFAULT false,
+  payload JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'DRAFT';
+ALTER TABLE books ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'PLANNED';
+ALTER TABLE book_translations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'DRAFT';
+
 CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_owner ON knowledge(owner_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status);
 CREATE INDEX IF NOT EXISTS idx_versions_knowledge ON knowledge_versions(knowledge_id, version DESC);
 CREATE INDEX IF NOT EXISTS idx_books_owner ON books(owner_id);
+CREATE INDEX IF NOT EXISTS idx_books_status ON books(status);
 CREATE INDEX IF NOT EXISTS idx_book_translations_book ON book_translations(book_id, version DESC);
+CREATE INDEX IF NOT EXISTS idx_book_translations_status ON book_translations(status);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sync_user_created ON sync_operations(user_id, created_at DESC);
