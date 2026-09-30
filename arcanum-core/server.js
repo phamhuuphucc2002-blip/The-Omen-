@@ -19,11 +19,22 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 const id = () => crypto.randomUUID();
 async function q(text, params=[]) { return pool.query(text, params); }
-async function init() { if (!process.env.DATABASE_URL) return; await q(fs.readFileSync('./schema.sql','utf8')); }
+async function init() { if (!process.env.DATABASE_URL) return; await q(fs.readFileSync('./schema.sql','utf8')); await bootstrapAdmin(); }
+async function bootstrapAdmin() {
+  const username = process.env.ARCANUM_ADMIN_USERNAME;
+  const password = process.env.ARCANUM_ADMIN_PASSWORD;
+  const email = process.env.ARCANUM_ADMIN_EMAIL || `${String(username || 'admin').toLowerCase()}@arcanum.local`;
+  if (!username || !password) return;
+  const existing = await q('SELECT id FROM users WHERE email=$1 OR display_name=$2 LIMIT 1',[email.toLowerCase(),username]);
+  if (existing.rowCount) return;
+  const hash = await bcrypt.hash(password, 12);
+  await q('INSERT INTO users(id,email,display_name,password_hash) VALUES($1,$2,$3,$4)',[id(),email.toLowerCase(),username,hash]);
+  console.log('Arcanum administrator initialized.');
+}
 function auth(req,res,next){ try { const h=req.headers.authorization||''; const token=h.startsWith('Bearer ')?h.slice(7):null; if(!token) return res.status(401).json({error:'Login required'}); req.user=jwt.verify(token,JWT_SECRET); next(); } catch { res.status(401).json({error:'Invalid session'}); } }
 app.get('/api/health', async (_req,res)=>{ try { await q('SELECT 1'); res.json({ok:true,service:'Arcanum Core',time:new Date().toISOString()}); } catch { res.status(503).json({ok:false}); }});
 app.post('/api/auth/register', async (req,res)=>{ try { const {email,password,displayName}=req.body; if(!email||!password||!displayName) return res.status(400).json({error:'email, password and displayName are required'}); const hash=await bcrypt.hash(password,12); const uid=id(); await q('INSERT INTO users(id,email,display_name,password_hash) VALUES($1,$2,$3,$4)',[uid,email.toLowerCase(),displayName,hash]); const token=jwt.sign({id:uid,email:email.toLowerCase()},JWT_SECRET,{expiresIn:'30d'}); res.json({token,user:{id:uid,email:email.toLowerCase(),displayName}}); } catch(e){ res.status(409).json({error:e.code==='23505'?'Email already registered':'Registration failed'}); }});
-app.post('/api/auth/login', async (req,res)=>{ try { const {email,password,deviceName='Unknown device'}=req.body; const r=await q('SELECT * FROM users WHERE email=$1',[String(email||'').toLowerCase()]); if(!r.rowCount||!(await bcrypt.compare(password,r.rows[0].password_hash))) return res.status(401).json({error:'Invalid credentials'}); const u=r.rows[0]; const token=jwt.sign({id:u.id,email:u.email},JWT_SECRET,{expiresIn:'30d'}); await q('INSERT INTO sessions(id,user_id,device_name,token_hash) VALUES($1,$2,$3,$4)',[id(),u.id,deviceName,crypto.createHash('sha256').update(token).digest('hex')]); res.json({token,user:{id:u.id,email:u.email,displayName:u.display_name}}); } catch { res.status(500).json({error:'Login failed'}); }});
+app.post('/api/auth/login', async (req,res)=>{ try { const {email,password,deviceName='Unknown device',username}=req.body; const identity=String(email||username||'').toLowerCase(); const r=await q('SELECT * FROM users WHERE email=$1 OR LOWER(display_name)=$1',[identity]); if(!r.rowCount||!(await bcrypt.compare(password,r.rows[0].password_hash))) return res.status(401).json({error:'Invalid credentials'}); const u=r.rows[0]; const token=jwt.sign({id:u.id,email:u.email},JWT_SECRET,{expiresIn:'30d'}); await q('INSERT INTO sessions(id,user_id,device_name,token_hash) VALUES($1,$2,$3,$4)',[id(),u.id,deviceName,crypto.createHash('sha256').update(token).digest('hex')]); res.json({token,user:{id:u.id,email:u.email,displayName:u.display_name}}); } catch { res.status(500).json({error:'Login failed'}); }});
 app.get('/api/me',auth,async(req,res)=>{ const r=await q('SELECT id,email,display_name,created_at FROM users WHERE id=$1',[req.user.id]); res.json(r.rows[0]); });
 app.get('/api/categories',auth,async(_req,res)=>{ const r=await q('SELECT * FROM categories ORDER BY name'); res.json(r.rows); });
 app.post('/api/categories',auth,async(req,res)=>{ const r=await q('INSERT INTO categories(id,name,parent_id) VALUES($1,$2,$3) RETURNING *',[id(),req.body.name,req.body.parentId||null]); res.json(r.rows[0]); });
